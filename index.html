@@ -53,45 +53,31 @@
     }
 
     .mode-btn.dark {
-      border-color: #8a2be2;
-      color: #8a2be2;
+      border-color: #009688;
+      color: #009688;
     }
 
     .mode-btn.dark:hover,
     .mode-btn.dark.active {
-      background: #8a2be2;
+      background: #009688;
       color: #fff;
-      box-shadow: 0 0 20px rgba(138, 43, 226, 0.5);
+      box-shadow: 0 0 20px rgba(0, 150, 136, 0.5);
     }
 
     .light-point {
       position: absolute;
       pointer-events: none;
-      width: 8px;
-      height: 8px;
+      width: 3px;
+      height: 3px;
       border-radius: 50%;
-      background: radial-gradient(circle, #fff 0%, #fff 30%, rgba(255, 255, 200, 0.8) 50%, rgba(255, 200, 100, 0.4) 70%, transparent 100%);
-      box-shadow: 
-        0 0 4px 2px rgba(255, 255, 200, 0.6),
-        0 0 8px 4px rgba(255, 200, 100, 0.4),
-        0 0 16px 8px rgba(255, 150, 50, 0.2);
+      background: #fff;
+      box-shadow: none;
       transform: translate(-50%, -50%);
-      animation: pulse 2s ease-in-out infinite;
+      animation: none;
     }
 
     .light-point.removing {
-      animation: fadeOut 0.3s ease-out forwards;
-    }
-
-    @keyframes pulse {
-      0%, 100% {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
-      }
-      50% {
-        opacity: 0.7;
-        transform: translate(-50%, -50%) scale(1.3);
-      }
+      animation: fadeOut 0.2s ease-out forwards;
     }
 
     @keyframes fadeOut {
@@ -111,7 +97,7 @@
   <script>
     let currentMode = 'light';
     const lightPoints = [];
-    const CLICK_RADIUS = 20;
+    const REMOVE_RADIUS = 6; // pixels, tight hitbox for dark mode
 
     // Mode switching
     const modeButtons = document.querySelectorAll('.mode-btn');
@@ -134,8 +120,8 @@
 
       if (currentMode === 'light') {
         createLightPoint(x, y);
-      } else {
-        destroyNearbyPoints(x, y);
+      } else { // dark mode
+        destroyNearestPoint(x, y);
       }
     });
 
@@ -148,15 +134,24 @@
       lightPoints.push({ element: point, x, y });
     }
 
-    function destroyNearbyPoints(x, y) {
-      for (let i = lightPoints.length - 1; i >= 0; i--) {
+    function destroyNearestPoint(x, y) {
+      let nearestIdx = -1;
+      let nearestDist = Infinity;
+
+      for (let i = 0; i < lightPoints.length; i++) {
         const p = lightPoints[i];
         const dist = Math.hypot(p.x - x, p.y - y);
-        if (dist <= CLICK_RADIUS) {
-          p.element.classList.add('removing');
-          setTimeout(() => p.element.remove(), 300);
-          lightPoints.splice(i, 1);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestIdx = i;
         }
+      }
+
+      if (nearestIdx !== -1 && nearestDist <= REMOVE_RADIUS) {
+        const target = lightPoints[nearestIdx];
+        target.element.classList.add('removing');
+        setTimeout(() => target.element.remove(), 200);
+        lightPoints.splice(nearestIdx, 1);
       }
     }
   </script>
