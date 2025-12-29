@@ -96,8 +96,11 @@
 
   <script>
     let currentMode = 'light';
-    const lightPoints = [];
+    const points = new Map(); // key: "x,y" -> { el, x, y }
     const REMOVE_RADIUS = 6; // pixels, tight hitbox for dark mode
+    let socket;
+
+    connectSocket();
 
     // Mode switching
     const modeButtons = document.querySelectorAll('.mode-btn');
@@ -115,44 +118,104 @@
     document.addEventListener('click', (e) => {
       if (e.target.closest('.mode-selector')) return;
 
-      const x = e.clientX;
-      const y = e.clientY;
+      const x = Math.round(e.clientX);
+      const y = Math.round(e.clientY);
 
       if (currentMode === 'light') {
-        createLightPoint(x, y);
-      } else { // dark mode
-        destroyNearestPoint(x, y);
+        sendMessage({ type: 'add', point: { x, y } });
+      } else {
+        const nearest = findNearestPoint(x, y);
+        if (nearest && nearest.dist <= REMOVE_RADIUS) {
+          sendMessage({ type: 'remove', point: { x: nearest.x, y: nearest.y } });
+        }
       }
     });
 
-    function createLightPoint(x, y) {
+    function connectSocket() {
+      socket = new WebSocket(`ws://${location.host}/ws`);
+
+      socket.addEventListener('open', () => {
+        console.log('ws connected');
+      });
+
+      socket.addEventListener('message', (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleServerMessage(msg);
+        } catch (err) {
+          console.error('invalid ws message', err);
+        }
+      });
+
+      socket.addEventListener('close', () => {
+        console.warn('ws closed, retrying...');
+        setTimeout(connectSocket, 1000);
+      });
+
+      socket.addEventListener('error', (err) => {
+        console.error('ws error', err);
+      });
+    }
+
+    function handleServerMessage(msg) {
+      if (!msg || !msg.type) return;
+
+      switch (msg.type) {
+        case 'init':
+          if (Array.isArray(msg.points)) {
+            msg.points.forEach(addPointLocal);
+          }
+          break;
+        case 'add':
+          if (msg.point) addPointLocal(msg.point);
+          break;
+        case 'remove':
+          if (msg.point) removePointLocal(msg.point);
+          break;
+        default:
+          console.warn('unknown message type', msg.type);
+      }
+    }
+
+    function sendMessage(payload) {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(payload));
+      } else {
+        console.warn('ws not ready, skip', payload);
+      }
+    }
+
+    function addPointLocal({ x, y }) {
+      const key = `${x},${y}`;
+      if (points.has(key)) return;
       const point = document.createElement('div');
       point.className = 'light-point';
       point.style.left = x + 'px';
       point.style.top = y + 'px';
       document.body.appendChild(point);
-      lightPoints.push({ element: point, x, y });
+      points.set(key, { el: point, x, y });
     }
 
-    function destroyNearestPoint(x, y) {
-      let nearestIdx = -1;
-      let nearestDist = Infinity;
+    function removePointLocal({ x, y }) {
+      const key = `${x},${y}`;
+      const entry = points.get(key);
+      if (!entry) return;
+      entry.el.classList.add('removing');
+      setTimeout(() => entry.el.remove(), 200);
+      points.delete(key);
+    }
 
-      for (let i = 0; i < lightPoints.length; i++) {
-        const p = lightPoints[i];
-        const dist = Math.hypot(p.x - x, p.y - y);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIdx = i;
+    function findNearestPoint(x, y) {
+      let best = null;
+      let bestDist = Infinity;
+      points.forEach((entry) => {
+        const dist = Math.hypot(entry.x - x, entry.y - y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = { x: entry.x, y: entry.y, dist };
         }
-      }
-
-      if (nearestIdx !== -1 && nearestDist <= REMOVE_RADIUS) {
-        const target = lightPoints[nearestIdx];
-        target.element.classList.add('removing');
-        setTimeout(() => target.element.remove(), 200);
-        lightPoints.splice(nearestIdx, 1);
-      }
+      });
+      return best;
     }
   </script>
 </body>
