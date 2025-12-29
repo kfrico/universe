@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Light Points</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      cursor: crosshair;
+    }
+
+    .mode-selector {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 20px;
+      z-index: 100;
+    }
+
+    .mode-btn {
+      padding: 10px 24px;
+      border: 2px solid;
+      border-radius: 20px;
+      background: transparent;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      transition: all 0.3s ease;
+    }
+
+    .mode-btn.light {
+      border-color: #ffcc00;
+      color: #ffcc00;
+    }
+
+    .mode-btn.light:hover,
+    .mode-btn.light.active {
+      background: #ffcc00;
+      color: #000;
+      box-shadow: 0 0 20px rgba(255, 204, 0, 0.5);
+    }
+
+    .mode-btn.dark {
+      border-color: #8a2be2;
+      color: #8a2be2;
+    }
+
+    .mode-btn.dark:hover,
+    .mode-btn.dark.active {
+      background: #8a2be2;
+      color: #fff;
+      box-shadow: 0 0 20px rgba(138, 43, 226, 0.5);
+    }
+
+    .light-point {
+      position: absolute;
+      pointer-events: none;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #fff 0%, #fff 30%, rgba(255, 255, 200, 0.8) 50%, rgba(255, 200, 100, 0.4) 70%, transparent 100%);
+      box-shadow: 
+        0 0 4px 2px rgba(255, 255, 200, 0.6),
+        0 0 8px 4px rgba(255, 200, 100, 0.4),
+        0 0 16px 8px rgba(255, 150, 50, 0.2);
+      transform: translate(-50%, -50%);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .light-point.removing {
+      animation: fadeOut 0.3s ease-out forwards;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      50% {
+        opacity: 0.7;
+        transform: translate(-50%, -50%) scale(1.3);
+      }
+    }
+
+    @keyframes fadeOut {
+      to {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(2);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="mode-selector">
+    <button class="mode-btn light active" data-mode="light">正能量 ✦</button>
+    <button class="mode-btn dark" data-mode="dark">暗能量 ◉</button>
+  </div>
+
+  <script>
+    let currentMode = 'light';
+    const lightPoints = [];
+    const CLICK_RADIUS = 20;
+
+    // Mode switching
+    const modeButtons = document.querySelectorAll('.mode-btn');
+    modeButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        modeButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+      });
+    });
+
+    // Main click handler
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.mode-selector')) return;
+
+      const x = e.clientX;
+      const y = e.clientY;
+
+      if (currentMode === 'light') {
+        createLightPoint(x, y);
+      } else {
+        destroyNearbyPoints(x, y);
+      }
+    });
+
+    function createLightPoint(x, y) {
+      const point = document.createElement('div');
+      point.className = 'light-point';
+      point.style.left = x + 'px';
+      point.style.top = y + 'px';
+      document.body.appendChild(point);
+      lightPoints.push({ element: point, x, y });
+    }
+
+    function destroyNearbyPoints(x, y) {
+      for (let i = lightPoints.length - 1; i >= 0; i--) {
+        const p = lightPoints[i];
+        const dist = Math.hypot(p.x - x, p.y - y);
+        if (dist <= CLICK_RADIUS) {
+          p.element.classList.add('removing');
+          setTimeout(() => p.element.remove(), 300);
+          lightPoints.splice(i, 1);
+        }
+      }
+    }
+  </script>
+</body>
+</html>
