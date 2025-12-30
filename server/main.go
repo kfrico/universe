@@ -6,36 +6,41 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 type point struct {
-	X int `json:"x"`
-	Y int `json:"y"`
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
 }
 
 type message struct {
-	Type   string  `json:"type"`
-	Point  *point  `json:"point,omitempty"`
-	Points []point `json:"points,omitempty"`
+	Type      string  `json:"type"`
+	Point     *point  `json:"point,omitempty"`
+	Points    []point `json:"points,omitempty"`
+	StartTime int64   `json:"startTime,omitempty"`
 }
 
 type hub struct {
-	mu     sync.Mutex
-	points map[string]point
-	conns  map[*websocket.Conn]struct{}
+	mu        sync.Mutex
+	points    map[string]point
+	conns     map[*websocket.Conn]struct{}
+	startTime int64
 }
 
 func newHub() *hub {
 	return &hub{
-		points: make(map[string]point),
-		conns:  make(map[*websocket.Conn]struct{}),
+		points:    make(map[string]point),
+		conns:     make(map[*websocket.Conn]struct{}),
+		startTime: time.Now().UnixMilli(),
 	}
 }
 
 func (h *hub) key(p point) string {
-	return fmt.Sprintf("%d,%d", p.X, p.Y)
+	return fmt.Sprintf("%.6f,%.6f,%.6f", p.X, p.Y, p.Z)
 }
 
 func (h *hub) addPoint(p point) bool {
@@ -118,7 +123,7 @@ func (h *hub) wsHandler(w http.ResponseWriter, r *http.Request) {
 	h.addConn(conn)
 	defer h.removeConn(conn)
 
-	initMsg := message{Type: "init", Points: h.snapshotPoints()}
+	initMsg := message{Type: "init", Points: h.snapshotPoints(), StartTime: h.startTime}
 	if err := conn.WriteJSON(initMsg); err != nil {
 		log.Println("init write error:", err)
 		return

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Light Points</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -17,6 +18,13 @@
       overflow: hidden;
       background: #000;
       cursor: crosshair;
+    }
+
+    canvas {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
     }
 
     .mode-selector {
@@ -41,50 +49,27 @@
     }
 
     .mode-btn.light {
-      border-color: #ffcc00;
-      color: #ffcc00;
+      border-color: #00ffcc;
+      color: #00ffcc;
     }
 
     .mode-btn.light:hover,
     .mode-btn.light.active {
-      background: #ffcc00;
+      background: #00ffcc;
       color: #000;
-      box-shadow: 0 0 20px rgba(255, 204, 0, 0.5);
+      box-shadow: 0 0 20px rgba(0, 255, 204, 0.5);
     }
 
     .mode-btn.dark {
-      border-color: #009688;
-      color: #009688;
+      border-color: #ff6699;
+      color: #ff6699;
     }
 
     .mode-btn.dark:hover,
     .mode-btn.dark.active {
-      background: #009688;
-      color: #fff;
-      box-shadow: 0 0 20px rgba(0, 150, 136, 0.5);
-    }
-
-    .light-point {
-      position: absolute;
-      pointer-events: none;
-      width: 3px;
-      height: 3px;
-      border-radius: 50%;
-      background: #fff;
-      box-shadow: none;
-      transform: translate(-50%, -50%);
-      animation: none;
-    }
-
-    .light-point.removing {
-      animation: fadeOut 0.2s ease-out forwards;
-    }
-
-    @keyframes fadeOut {
-      to {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(2);
-      }
+      background: #ff6699;
+      color: #000;
+      box-shadow: 0 0 20px rgba(255, 102, 153, 0.5);
     }
   </style>
 </head>
@@ -94,15 +79,67 @@
     <button class="mode-btn dark" data-mode="dark">暗能量 ◉</button>
   </div>
 
+  <canvas id="background-animation"></canvas>
+
   <script>
+    // === Global State ===
     let currentMode = 'light';
-    const points = new Map(); // key: "x,y" -> { el, x, y }
-    const REMOVE_RADIUS = 6; // pixels, tight hitbox for dark mode
+    const userPoints = new Map(); // key: "x,y,z" -> { x, y, z }
     let socket;
+    const REMOVE_RADIUS = 0.1; // 3D space distance threshold
+    let serverStartTime = null; // Server start timestamp for synced rotation
+    const ROTATION_SPEED = 0.0001; // radians per millisecond
 
-    connectSocket();
+    // === Three.js Setup ===
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({
+      canvas: document.getElementById('background-animation'),
+      antialias: true
+    });
 
-    // Mode switching
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    camera.position.z = 3;
+
+    // === User Particles ===
+    let userParticlesGeometry = new THREE.BufferGeometry();
+    const userParticlesMaterial = new THREE.PointsMaterial({
+      size: 0.02,
+      color: '#00ffcc'
+    });
+
+    const userParticlesMesh = new THREE.Points(userParticlesGeometry, userParticlesMaterial);
+    scene.add(userParticlesMesh);
+
+    // === Raycaster for click detection ===
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const intersectPoint = new THREE.Vector3();
+
+    // === Animation Loop ===
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Calculate rotation based on server start time
+      if (serverStartTime !== null) {
+        const elapsed = Date.now() - serverStartTime;
+        userParticlesMesh.rotation.y = elapsed * ROTATION_SPEED;
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // === Window Resize ===
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // === Mode Switching ===
     const modeButtons = document.querySelectorAll('.mode-btn');
     modeButtons.forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -114,22 +151,37 @@
       });
     });
 
-    // Main click handler
+    // === Click Handler ===
     document.addEventListener('click', (e) => {
       if (e.target.closest('.mode-selector')) return;
 
-      const x = Math.round(e.clientX);
-      const y = Math.round(e.clientY);
+      // Convert mouse to NDC
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      // Raycast to Z=0 plane for X,Y position
+      raycaster.setFromCamera(mouse, camera);
+      raycaster.ray.intersectPlane(planeZ, intersectPoint);
+
+      if (!intersectPoint) return;
+
+      const x = intersectPoint.x;
+      const y = intersectPoint.y;
 
       if (currentMode === 'light') {
-        sendMessage({ type: 'add', point: { x, y } });
+        const z = (Math.random() - 0.5) * 2; // Random Z between -1 and 1
+        sendMessage({ type: 'add', point: { x, y, z } });
       } else {
-        const nearest = findNearestPoint(x, y);
+        // Dark mode: find nearest by X,Y only (ignore Z depth)
+        const nearest = findNearestPoint2D(x, y);
         if (nearest && nearest.dist <= REMOVE_RADIUS) {
-          sendMessage({ type: 'remove', point: { x: nearest.x, y: nearest.y } });
+          sendMessage({ type: 'remove', point: { x: nearest.x, y: nearest.y, z: nearest.z } });
         }
       }
     });
+
+    // === WebSocket ===
+    connectSocket();
 
     function connectSocket() {
       socket = new WebSocket(`ws://${location.host}/ws`);
@@ -162,6 +214,9 @@
 
       switch (msg.type) {
         case 'init':
+          if (msg.startTime) {
+            serverStartTime = msg.startTime;
+          }
           if (Array.isArray(msg.points)) {
             msg.points.forEach(addPointLocal);
           }
@@ -185,36 +240,67 @@
       }
     }
 
-    function addPointLocal({ x, y }) {
-      const key = `${x},${y}`;
-      if (points.has(key)) return;
-      const point = document.createElement('div');
-      point.className = 'light-point';
-      point.style.left = x + 'px';
-      point.style.top = y + 'px';
-      document.body.appendChild(point);
-      points.set(key, { el: point, x, y });
+    // === Point Management ===
+    function makeKey(x, y, z) {
+      return `${x.toFixed(6)},${y.toFixed(6)},${z.toFixed(6)}`;
     }
 
-    function removePointLocal({ x, y }) {
-      const key = `${x},${y}`;
-      const entry = points.get(key);
-      if (!entry) return;
-      entry.el.classList.add('removing');
-      setTimeout(() => entry.el.remove(), 200);
-      points.delete(key);
+    function addPointLocal({ x, y, z }) {
+      const key = makeKey(x, y, z);
+      if (userPoints.has(key)) return;
+      userPoints.set(key, { x, y, z });
+      updateUserParticles();
     }
 
-    function findNearestPoint(x, y) {
+    function removePointLocal({ x, y, z }) {
+      const key = makeKey(x, y, z);
+      if (!userPoints.has(key)) return;
+      userPoints.delete(key);
+      updateUserParticles();
+    }
+
+    function updateUserParticles() {
+      const positions = new Float32Array(userPoints.size * 3);
+      let i = 0;
+      userPoints.forEach(({ x, y, z }) => {
+        positions[i++] = x;
+        positions[i++] = y;
+        positions[i++] = z;
+      });
+
+      userParticlesGeometry.dispose();
+      userParticlesGeometry = new THREE.BufferGeometry();
+      userParticlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      userParticlesMesh.geometry = userParticlesGeometry;
+    }
+
+    function findNearestPoint2D(x, y) {
       let best = null;
       let bestDist = Infinity;
-      points.forEach((entry) => {
-        const dist = Math.hypot(entry.x - x, entry.y - y);
+
+      // Account for rotation when finding nearest (only X,Y distance)
+      // Use same time-based calculation as animation loop
+      const elapsed = serverStartTime !== null ? Date.now() - serverStartTime : 0;
+      const rotationY = elapsed * ROTATION_SPEED;
+      const cosR = Math.cos(-rotationY);
+      const sinR = Math.sin(-rotationY);
+
+      userPoints.forEach((entry) => {
+        // Apply inverse rotation to stored point to get world position
+        const wx = entry.x * cosR - entry.z * sinR;
+
+        // Only calculate 2D distance (X, Y)
+        const dist = Math.sqrt(
+          Math.pow(wx - x, 2) +
+          Math.pow(entry.y - y, 2)
+        );
+
         if (dist < bestDist) {
           bestDist = dist;
-          best = { x: entry.x, y: entry.y, dist };
+          best = { x: entry.x, y: entry.y, z: entry.z, dist };
         }
       });
+
       return best;
     }
   </script>
